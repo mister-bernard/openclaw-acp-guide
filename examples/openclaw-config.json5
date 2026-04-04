@@ -1,0 +1,94 @@
+// openclaw-config.json5
+// Complete example configuration for ACP delegation with Qwen orchestrator
+// Copy the relevant sections into your openclaw.json
+//
+// Replace all YOUR_*_API_KEY placeholders with real keys
+
+{
+  // ─── Model Providers ───────────────────────────────────────────────
+  models: {
+    providers: {
+      // Primary orchestrator — cheap and fast
+      deepinfra: {
+        type: "openai",
+        apiKey: "YOUR_DEEPINFRA_API_KEY",
+        baseUrl: "https://api.deepinfra.com/v1/openai",
+        models: [
+          { id: "Qwen/Qwen3.5-35B-A3B", name: "Qwen 3.5 35B" }
+        ],
+        // CRITICAL: Qwen 3.5 is a reasoning model.
+        // Output goes to reasoning_content, not content.
+        // Without this flag, you get empty responses.
+        reasoning: true
+      },
+
+      // Fallback #2 — cheap, good at code
+      deepseek: {
+        type: "openai",
+        apiKey: "YOUR_DEEPSEEK_API_KEY",
+        baseUrl: "https://api.deepseek.com/v1",
+        models: [
+          { id: "deepseek-chat", name: "DeepSeek Chat" }
+        ]
+      },
+
+      // Fallback #3 — free tier available
+      google: {
+        type: "google",
+        apiKey: "YOUR_GEMINI_API_KEY",
+        models: [
+          { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" }
+        ]
+      }
+    }
+  },
+
+  // ─── Agent Defaults ────────────────────────────────────────────────
+  agents: {
+    defaults: {
+      // Model aliases for easy /model switching
+      models: {
+        "deepinfra/Qwen/Qwen3.5-35B-A3B": { alias: "qwen" },
+        "deepseek/deepseek-chat": { alias: "deepseek" },
+        "google/gemini-2.5-flash": { alias: "gemini" }
+      },
+
+      // Primary model + automatic fallback chain
+      model: {
+        primary: "deepinfra/Qwen/Qwen3.5-35B-A3B",
+        fallbacks: [
+          "deepseek/deepseek-chat",
+          "google/gemini-2.5-flash"
+        ]
+      },
+
+      // Qwen temperature — NEVER use 0, causes infinite loops
+      temperature: 0.7
+    }
+  },
+
+  // ─── ACP Plugin ────────────────────────────────────────────────────
+  plugins: {
+    entries: {
+      acpx: { enabled: true }
+    }
+  },
+
+  acp: {
+    defaultAgent: "claude",
+    agents: {
+      claude: {
+        command: "claude",
+        args: ["--dangerously-skip-permissions"],
+        permissionMode: "approve-all",
+
+        // CRITICAL: Empty string forces OAuth (Max subscription, $0)
+        // If ANTHROPIC_API_KEY is set in parent env, Claude Code
+        // will use API billing instead. This override prevents that.
+        env: {
+          ANTHROPIC_API_KEY: ""
+        }
+      }
+    }
+  }
+}
