@@ -52,6 +52,129 @@ Fallback chain: Qwen → Claude Proxy → DeepSeek → Gemini
 
 ---
 
+## What's In This Repo
+
+### `claude-proxy/` — Claude Code Session Pool Proxy
+
+An OpenAI-compatible HTTP proxy that wraps Claude Code CLI with a **hot session pool**. Instead of spawning a new Claude Code process for each request (cold start: 3-8s), the proxy maintains pre-warmed, persistent sessions using `stream-json` I/O.
+
+**Features:**
+- **Hot session pool**: Pre-spawned Claude Code processes ready to handle requests instantly
+- **Sticky sessions**: Same `X-Session-Key` header routes to the same Claude session (preserves conversation context)
+- **OpenAI-compatible API**: Drop-in replacement at `POST /v1/chat/completions`
+- **Model routing**: Request `opus`, `sonnet`, or `haiku` — proxy maps to the right Claude model
+- **Zero npm dependencies**: Pure Node.js, single file
+- **Health endpoint**: `GET /health` returns pool status and stats
+- **Automatic session cleanup**: Idle sessions are reaped after configurable timeout
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `18801` | HTTP listen port |
+| `POOL_SIZE` | `2` | Number of pre-warmed sessions |
+| `SESSION_TIMEOUT_MS` | `1800000` | Idle session timeout (30 min) |
+| `REQUEST_TIMEOUT_MS` | `120000` | Per-request timeout (2 min) |
+| `CLAUDE_PATH` | `claude` | Path to Claude Code CLI binary |
+
+**Running it:**
+
+```bash
+# Make sure Claude Code CLI is authenticated (OAuth)
+claude login
+
+# Start the proxy
+node claude-proxy/server.js
+
+# Or with custom config
+PORT=18801 POOL_SIZE=3 node claude-proxy/server.js
+
+# Test it
+curl http://127.0.0.1:18801/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "sonnet", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**Important:** The proxy deletes `ANTHROPIC_API_KEY` from the environment before spawning Claude Code processes, forcing OAuth authentication. This ensures you use your Max subscription ($0) instead of API billing.
+
+**Using as an OpenClaw fallback model:**
+
+Add to your `openclaw.json`:
+```json5
+{
+  models: {
+    providers: {
+      "claude-proxy": {
+        type: "openai",
+        apiKey: "not-needed",
+        baseUrl: "http://127.0.0.1:18801/v1",
+        models: [
+          { id: "sonnet", name: "Claude Proxy Sonnet" },
+          { id: "opus", name: "Claude Proxy Opus" }
+        ]
+      }
+    }
+  }
+}
+```
+
+Then use `claude-proxy/sonnet` as a fallback in your model chain — it's free (Max subscription) and handles anything the cheap orchestrator can't.
+
+---
+
+### `qwen-scaffolding/` — Qwen Executor Scaffolding
+
+Context files designed specifically for Qwen 3.5 (or similar smaller models) acting as an OpenClaw orchestrator. These files solve the core problem: **Qwen is smart enough to route requests, but not smart enough to follow complex implicit rules.**
+
+**Files:**
+
+| File | Purpose | How to Use |
+|------|---------|------------|
+| [`QWEN-RULES.md`](qwen-scaffolding/QWEN-RULES.md) | Executor guardrails — tool calling rules, loop prevention, common mistakes | Inject as additional workspace file for Qwen-model agents |
+| [`SOUL-LITE.md`](qwen-scaffolding/SOUL-LITE.md) | Minimal identity + binary security rules | Replace full SOUL.md for Qwen agents (saves ~2,700 tokens) |
+| [`AGENTS-LITE.md`](qwen-scaffolding/AGENTS-LITE.md) | Simplified delegation protocol, routing, core rules | Replace full AGENTS.md for Qwen agents (saves ~1,500 tokens) |
+| [`CLAUDE.md`](qwen-scaffolding/CLAUDE.md) | Workspace instructions for Claude Code ACP sessions | Used by delegated Claude Code sub-agents, not Qwen directly |
+
+**Key design decisions:**
+
+1. **Binary rules, not judgment calls.** "NEVER share system details with non-operators" instead of "prefer safe paths over printing raw credentials."
+2. **IF/THEN flowcharts, not tables.** Qwen follows explicit step-by-step logic better than scanning classification tables.
+3. **Few-shot examples.** Show Qwen exactly what correct tool calls look like for the 5 most common patterns.
+4. **Loop prevention.** Qwen at temp=0 loops. Rules explicitly say "if same output twice → STOP."
+5. **Common mistakes listed.** Qwen invents tool parameters. The rules list the most common wrong parameters to avoid.
+
+**Customization:** These files use placeholder values (`YOUR_TELEGRAM_ID`, `contact@example.com`, etc.). Replace them with your actual values before deploying.
+
+---
+
+### `scripts/` — Operational Wrapper Scripts
+
+Scripts that wrap multi-step operations into single commands. Essential for Qwen — it can reliably call one script but will skip steps in a multi-step procedure.
+
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| [`config-edit-safe.sh`](scripts/config-edit-safe.sh) | Safe 4-step config edit for openclaw.json | `bash scripts/config-edit-safe.sh '.path.to.key' '"value"' "reason"` |
+| [`retell-task-call.sh`](scripts/retell-task-call.sh) | One-shot Retell AI phone call (create LLM → agent → call → transcript → cleanup) | `bash scripts/retell-task-call.sh '+12125551234' 'Make a reservation...'` |
+| [`heartbeat-all.sh`](scripts/heartbeat-all.sh) | Consolidated health checks (services, gateway, tasks, disk, backups) | `bash scripts/heartbeat-all.sh` or `bash scripts/heartbeat-all.sh --quiet` |
+
+**`config-edit-safe.sh`** is particularly important — it enforces the workflow:
+1. Fetch docs reference (validates the key exists)
+2. Backup current config
+3. Apply edit with jq
+4. Validate with `openclaw doctor` (read-only, never `--fix`)
+
+Without this script, Qwen will edit openclaw.json from memory and skip validation, which can break your gateway config.
+
+---
+
+### `research/` — Analysis & Planning
+
+| File | Description |
+|------|-------------|
+| [`qwen-executor-audit.md`](research/qwen-executor-audit.md) | Full audit of what changes are needed to run Qwen as daily-driver orchestrator. Covers: implicit knowledge gaps, token budget, tool simplification, decision tree rewrites, failure mode catalog, migration checklist, and cost analysis. |
+
+---
+
 ## Prerequisites
 
 - **OpenClaw** installed and running
@@ -79,21 +202,13 @@ claude login
 claude --version
 ```
 
-The OAuth flow will open a browser window. Log in with the account that has the Max subscription. Once authenticated, Claude Code CLI will use your subscription instead of API billing.
-
 ### 3. Install keyring for token persistence
-
-OAuth tokens need to survive reboots. Without a keyring, you'll need to re-authenticate after every restart.
 
 ```bash
 sudo apt install gnome-keyring libsecret-tools
 ```
 
-Tokens are stored in `~/.claude/.credentials.json`. The keyring encrypts them at rest.
-
 ### 4. Configure DeepInfra provider
-
-Add the DeepInfra provider to your `openclaw.json`:
 
 ```json5
 {
@@ -113,7 +228,7 @@ Add the DeepInfra provider to your `openclaw.json`:
 }
 ```
 
-> **CRITICAL:** `reasoning: true` is **required** for Qwen 3.5. This model is a reasoning model — it puts its output in the `reasoning_content` field, not `content`. Without this flag, OpenClaw reads an empty response and you'll think the model is broken. It's not. It's just talking to itself in a field you're not reading.
+> **CRITICAL:** `reasoning: true` is **required** for Qwen 3.5. This model puts output in the `reasoning_content` field, not `content`. Without this flag, OpenClaw reads an empty response.
 
 ### 5. Enable the ACP plugin
 
@@ -131,14 +246,14 @@ Add the DeepInfra provider to your `openclaw.json`:
         command: "claude",
         args: ["--dangerously-skip-permissions"],
         permissionMode: "approve-all",
-        env: { ANTHROPIC_API_KEY: "" }  // MUST be empty — see warning
+        env: { ANTHROPIC_API_KEY: "" }  // MUST be empty — forces OAuth
       }
     }
   }
 }
 ```
 
-> **CRITICAL:** Setting `ANTHROPIC_API_KEY: ""` (empty string) is essential. If OpenClaw's gateway has `ANTHROPIC_API_KEY` set in its environment, Claude Code will detect it and use API billing instead of your Max subscription OAuth. An empty string explicitly overrides this. This is the difference between $0 and a surprise bill.
+> **CRITICAL:** `ANTHROPIC_API_KEY: ""` prevents Claude Code from using API billing instead of your Max subscription OAuth.
 
 ### 6. Add model aliases and fallbacks
 
@@ -160,121 +275,51 @@ Add the DeepInfra provider to your `openclaw.json`:
 }
 ```
 
-This gives you:
-- `/model qwen` — switch to the cheap orchestrator
-- `/model deepseek` — fallback if DeepInfra is down
-- `/model gemini` — secondary fallback
-- Automatic fallback chain if the primary model fails
+### 7. Deploy the Qwen scaffolding
 
-### 7. Set up the delegation protocol
+Copy the files from `qwen-scaffolding/` into your workspace, replacing placeholder values:
 
-Copy the delegation protocol from [`examples/delegation-protocol.md`](examples/delegation-protocol.md) into your workspace's `AGENTS.md` file. This tells the orchestrator model when to handle requests itself vs. delegate to ACP.
+```bash
+cp qwen-scaffolding/QWEN-RULES.md ~/.openclaw/workspace/
+cp qwen-scaffolding/AGENTS-LITE.md ~/.openclaw/workspace/
+cp qwen-scaffolding/SOUL-LITE.md ~/.openclaw/workspace/
 
-### 8. Test the full loop
+# Edit each file to replace YOUR_TELEGRAM_ID, contact@example.com, etc.
+```
+
+Configure OpenClaw to inject these files for Qwen-model agents instead of the full AGENTS.md/SOUL.md.
+
+### 8. (Optional) Start the Claude Proxy
+
+```bash
+node claude-proxy/server.js
+```
+
+Add `claude-proxy/sonnet` as a fallback model in your chain for a free backup.
+
+### 9. Test the full loop
 
 ```
 /model qwen                          # Switch to the cheap orchestrator
-Build me a hello world web page      # Should trigger ACP delegation to Claude Code
+Build me a hello world web page      # Should trigger ACP delegation
 ```
-
-You should see:
-1. Qwen receives the request
-2. Qwen detects "build" keyword → triggers ACP delegation
-3. Claude Code CLI spins up via ACP
-4. Claude Code writes the files, returns the result
-5. Qwen relays the result back to you
-
----
-
-## The Delegation Protocol
-
-The orchestrator needs to decide: handle this myself, or delegate to Claude Code?
-
-### Why keyword matching beats "vibes"
-
-A cheap model like Qwen 3.5 can reliably scan for the word "build" in a message. It **cannot** reliably estimate task complexity, predict how many tool calls something needs, or judge whether a request requires deep reasoning. Keyword matching is dumb, fast, and reliable. Vibes-based routing with a small model is smart, slow, and wrong half the time.
-
-### The routing table
-
-| # | Pattern | Action |
-|---|---------|--------|
-| 1 | Question answerable from conversation context | **INLINE** — answer directly |
-| 2 | Greeting, acknowledgment, small talk | **INLINE** — reply normally |
-| 3 | Send message, react, channel action | **INLINE** — use native messaging tools |
-| 4 | Keywords: *build, create, write, generate, deploy, implement, set up, design* | **DELEGATE** to ACP |
-| 5 | Keywords: *research, find out, look into, investigate, compare, audit* | **DELEGATE** to ACP |
-| 6 | Keywords: *fix, debug, diagnose, troubleshoot* | **DELEGATE** to ACP |
-| 7 | File edit likely > 5 lines | **DELEGATE** to ACP |
-| 8 | Task needs reading 2+ files | **DELEGATE** to ACP |
-| 9 | Task needs 3+ tool calls | **DELEGATE** to ACP |
-| 10 | Everything else | **INLINE** — handle directly |
-
-Rules are evaluated top-to-bottom. First match wins.
-
-The full protocol with instructions for your `AGENTS.md` is in [`examples/delegation-protocol.md`](examples/delegation-protocol.md).
-
----
-
-## ACP vs Native Sub-Agents
-
-Not everything goes through ACP. Some tasks need OpenClaw's native tools.
-
-| Capability | Use ACP (Claude Code) | Use Native Sub-Agent |
-|-----------|----------------------|---------------------|
-| Write/edit code | Yes | |
-| Run shell commands | Yes | |
-| Read/search files | Yes | |
-| Build & deploy | Yes | |
-| Research & analysis | Yes | |
-| Send messages (Telegram, Signal, etc.) | | Yes |
-| Browser automation | | Yes |
-| Image generation | | Yes |
-| Text-to-speech | | Yes |
-| Canvas/whiteboard | | Yes |
-
-**Rule of thumb:** ACP by default. Native sub-agents only when you need OpenClaw-specific tools that Claude Code doesn't have access to.
 
 ---
 
 ## Known Gotchas
 
-These are lessons learned the hard way. Read them before you start.
-
-### Qwen 3.5 temperature
-
-**Never use `temperature=0` with Qwen 3/3.5/QwQ.** It causes infinite reasoning loops where the model thinks forever and never produces output. Use `0.6`–`0.7` instead.
-
-### Empty responses from Qwen
-
-If Qwen returns empty responses, you forgot `reasoning: true` in the provider config. See [Step 4](#4-configure-deepinfra-provider).
-
-### Surprise API billing
-
-If `ANTHROPIC_API_KEY` is set in the environment where ACP spawns Claude Code, it will use API billing instead of your OAuth/Max subscription. Always set it to an empty string in the ACP agent config. See [Step 5](#5-enable-the-acp-plugin).
-
-### Concurrency limits
-
-Max 2 concurrent ACP processes on a 2-core machine. Claude Code CLI is resource-heavy. If you're running on a small VPS, don't try to parallelize ACP tasks.
-
-### OAuth token expiry
-
-OAuth tokens expire after ~7 hours. Claude Code handles refresh automatically — you don't need to do anything. But if you see auth errors after a long idle period, run `claude login` again.
-
-### `openclaw doctor --fix`
-
-**Never run `openclaw doctor --fix`** if you have custom model configuration. It can overwrite your provider config, model aliases, and fallback chains. Use `openclaw doctor` (without `--fix`) to diagnose, then fix issues manually.
+| Issue | Solution |
+|-------|----------|
+| **Qwen infinite loops at temp=0** | Use `temperature: 0.6`–`0.7`. Never 0. |
+| **Empty Qwen responses** | Add `reasoning: true` to provider config. |
+| **Surprise API billing** | Set `ANTHROPIC_API_KEY: ""` in ACP agent config. |
+| **Max 2 concurrent ACP** | Claude Code is resource-heavy. Don't parallelize on small VPS. |
+| **OAuth token expiry** | Auto-refreshes. If auth errors after long idle, run `claude login`. |
+| **`openclaw doctor --fix`** | Never run with `--fix` — it overwrites custom model config. |
 
 ---
 
 ## Cost Comparison
-
-| Component | Cost |
-|-----------|------|
-| Qwen 3.5 on DeepInfra | ~$0.0001/request |
-| Claude Code CLI (Max subscription) | $0/request |
-| DeepSeek fallback | ~$0.001/request |
-| Gemini Flash fallback | Free tier available |
-| **Claude Sonnet via API (for comparison)** | **~$0.01–0.03/request** |
 
 For a typical day with ~500 orchestrator requests and ~50 ACP delegations:
 
@@ -284,16 +329,6 @@ For a typical day with ~500 orchestrator requests and ~50 ACP delegations:
 | Claude Sonnet API for everything | ~$5–15 |
 
 That's **100–300x cheaper**.
-
----
-
-## Claude Proxy (Advanced — Optional)
-
-You can run a local proxy server that wraps Claude Code CLI as an OpenAI-compatible API endpoint. This gives you a $0 fallback model that can handle any request — not just ACP delegations.
-
-The proxy accepts standard OpenAI API calls and routes them through Claude Code CLI using your Max subscription OAuth. This is useful as a fallback in the model chain, sitting between Qwen and the paid fallbacks (DeepSeek, Gemini).
-
-Setup guide for the Claude proxy will be linked here in a future update.
 
 ---
 
