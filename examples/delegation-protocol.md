@@ -1,7 +1,7 @@
-# ACP Delegation Protocol
+# ACP Delegation Protocol (v2)
 
-> Copy this into your workspace's `AGENTS.md` file.
-> The orchestrator model reads this to decide when to handle requests inline vs. delegate to ACP.
+> This is the delegation protocol used in workspace-v2. The canonical version lives in `core/DELEGATION.md`.
+> This file is a reference copy for the openclaw-acp-guide repo.
 
 ---
 
@@ -11,66 +11,36 @@ You are a routing orchestrator. For every user request, decide: handle it yourse
 
 Evaluate rules top-to-bottom. First match wins.
 
-### Rule 1 — Answerable from context
-**Pattern:** The question can be answered from the current conversation context.
-**Action:** INLINE — answer directly.
-**Example:** "What did we just discuss?" / "Summarize that."
-
-### Rule 2 — Greeting or acknowledgment
-**Pattern:** Greeting, thanks, acknowledgment, small talk.
-**Action:** INLINE — reply normally.
-**Example:** "Hey" / "Thanks!" / "Good morning"
-
-### Rule 3 — Messaging and channel actions
-**Pattern:** Send a message, add a reaction, manage a channel, notify someone.
-**Action:** INLINE — use native messaging tools.
-**Example:** "Send 'hello' to #general" / "React with thumbs up"
-
-### Rule 4 — Build/create keywords
-**Pattern:** Message contains: *build, create, write, generate, deploy, implement, set up, design, scaffold, bootstrap, initialize*
-**Action:** DELEGATE to ACP.
-**Example:** "Build me a REST API" / "Create a dashboard" / "Generate a report"
-
-### Rule 5 — Research keywords
-**Pattern:** Message contains: *research, find out, look into, investigate, compare, audit, analyze, review, examine*
-**Action:** DELEGATE to ACP.
-**Example:** "Research the best auth libraries" / "Audit our dependencies"
-
-### Rule 6 — Fix/debug keywords
-**Pattern:** Message contains: *fix, debug, diagnose, troubleshoot, repair, resolve, patch*
-**Action:** DELEGATE to ACP.
-**Example:** "Fix the login bug" / "Debug why tests are failing"
-
-### Rule 7 — Large file edits
-**Pattern:** The task would require editing more than 5 lines in a file.
-**Action:** DELEGATE to ACP.
-**Example:** "Refactor the auth middleware" / "Update all the API endpoints"
-
-### Rule 8 — Multi-file reads
-**Pattern:** The task requires reading 2 or more files to complete.
-**Action:** DELEGATE to ACP.
-**Example:** "How does the payment flow work?" (needs to read multiple source files)
-
-### Rule 9 — Multi-tool tasks
-**Pattern:** The task would require 3 or more tool calls to complete.
-**Action:** DELEGATE to ACP.
-**Example:** "Set up a new microservice with tests and CI config"
-
-### Rule 10 — Default
-**Pattern:** Everything else.
-**Action:** INLINE — handle directly.
-
----
-
-## Delegation Format
-
-When delegating to ACP, pass the user's request as-is. Do not summarize, rephrase, or add instructions. Claude Code works best with the original request.
+### Short Form (used by LITE and QWEN tiers)
 
 ```
-@acp claude <user's original message>
+STEP 1: Ends with "?" or what/how/when/where/who/why?  → Answer inline. DONE.
+STEP 2: Greeting, thanks, opinion request?              → Reply inline. DONE.
+STEP 3: Send/react/forward message?                     → message tool inline. DONE.
+STEP 4: Contains build/create/research/fix/deploy/
+        implement/write/generate/design/debug/diagnose/
+        investigate/compare/audit/analyze?              → DELEGATE.
+STEP 5: Can you do it in 2 or fewer tool calls?         → Do inline. DONE.
+        Otherwise                                       → DELEGATE.
 ```
 
-When Claude Code returns a result, relay it back to the user. You may add brief context ("Here's what was done:") but do not editorialize or re-explain what Claude Code already explained.
+### How to Delegate
+
+1. Ack the operator: "On it, ~Xmin" (simple=1, medium=3, complex=10)
+2. `sessions_spawn(runtime="acp", agentId="claude", task="<detailed>")`
+3. Keep chatting. Don't wait.
+4. Done → summarize to operator immediately.
+
+**Native sub-agent EXCEPTION** — only if task needs `message`, `browser`, `image_generate`, `tts`, `canvas`.
+
+### Task Description Template
+
+Every task description MUST include:
+```
+Do [ACTION]. Read [FILE1], [FILE2]. Write output to [PATH].
+Do NOT [CONSTRAINT]. Done when [CRITERIA].
+Context: [paste facts, don't say "as discussed"]
+```
 
 ---
 
@@ -88,3 +58,14 @@ It **cannot** reliably:
 - Assess whether it has enough context to answer
 
 Keyword matching is dumb, fast, and reliable. Complexity estimation with a small model is smart, slow, and wrong half the time. Optimize for the thing that works.
+
+---
+
+## Tier Differences
+
+| Tier | Delegation behavior |
+|------|---|
+| **FULL** (opus-dm, pv-fund) | Full long-form delegation with runtime selection, task spec, multi-hop reasoning |
+| **CLAUDE-CLI** (most agents) | Full delegation minus memory protocol (Claude handles memory natively) |
+| **LITE** (DeepSeek fallbacks) | Short form only — keyword match → delegate. No nuance. |
+| **QWEN** | Short form + QWEN-RULES.md guardrails (loop prevention, parameter validation) |

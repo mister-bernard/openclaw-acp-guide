@@ -1,6 +1,6 @@
 // openclaw-config.json5
-// Complete example configuration for ACP delegation with Qwen orchestrator
-// Copy the relevant sections into your openclaw.json
+// Example OpenClaw configuration for workspace-v2 + ACP delegation
+// Updated 2026-04-05 for OpenClaw 2026.4.x
 //
 // Replace all YOUR_*_API_KEY placeholders with real keys
 
@@ -8,36 +8,71 @@
   // ─── Model Providers ───────────────────────────────────────────────
   models: {
     providers: {
-      // Primary orchestrator — cheap and fast
-      deepinfra: {
-        type: "openai",
-        apiKey: "YOUR_DEEPINFRA_API_KEY",
-        baseUrl: "https://api.deepinfra.com/v1/openai",
+      // Google — used for compaction (cheap, 1M context)
+      google: {
+        baseUrl: "https://generativelanguage.googleapis.com",
+        apiKey: "YOUR_GEMINI_API_KEY",
         models: [
-          { id: "Qwen/Qwen3.5-35B-A3B", name: "Qwen 3.5 35B" }
-        ],
-        // CRITICAL: Qwen 3.5 is a reasoning model.
-        // Output goes to reasoning_content, not content.
-        // Without this flag, you get empty responses.
-        reasoning: true
-      },
-
-      // Fallback #2 — cheap, good at code
-      deepseek: {
-        type: "openai",
-        apiKey: "YOUR_DEEPSEEK_API_KEY",
-        baseUrl: "https://api.deepseek.com/v1",
-        models: [
-          { id: "deepseek-chat", name: "DeepSeek Chat" }
+          {
+            id: "gemini-2.5-flash",
+            name: "Gemini 2.5 Flash",
+            reasoning: true,
+            input: ["text", "image"],
+            cost: { input: 0.15, output: 0.6 },
+            contextWindow: 1048576,
+            maxTokens: 65536
+          }
         ]
       },
 
-      // Fallback #3 — free tier available
-      google: {
-        type: "google",
-        apiKey: "YOUR_GEMINI_API_KEY",
+      // DeepSeek — cheap fallback, good at code
+      deepseek: {
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: "YOUR_DEEPSEEK_API_KEY",
         models: [
-          { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" }
+          {
+            id: "deepseek-chat",
+            name: "DeepSeek Chat V3",
+            cost: { input: 0.27, output: 1.1 },
+            contextWindow: 65536,
+            maxTokens: 8192
+          }
+        ]
+      },
+
+      // DeepInfra — Qwen models (reasoning orchestrators)
+      deepinfra: {
+        baseUrl: "https://api.deepinfra.com/v1/openai",
+        apiKey: "YOUR_DEEPINFRA_API_KEY",
+        api: "openai-completions",
+        models: [
+          {
+            id: "Qwen/Qwen3.5-35B-A3B",
+            name: "Qwen 3.5 35B-A3B",
+            reasoning: true,  // CRITICAL — Qwen uses reasoning_content field
+            input: ["text"],
+            cost: { input: 0.07, output: 0.14 },
+            contextWindow: 131072,
+            maxTokens: 8192
+          },
+          {
+            id: "Qwen/Qwen3.5-122B-A10B",
+            name: "Qwen 3.5 122B-A10B",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0.2, output: 0.4 },
+            contextWindow: 131072,
+            maxTokens: 8192
+          },
+          {
+            id: "Qwen/Qwen3.5-397B-A17B",
+            name: "Qwen 3.5 397B-A17B",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0.35, output: 0.7 },
+            contextWindow: 131072,
+            maxTokens: 8192
+          }
         ]
       }
     }
@@ -46,25 +81,68 @@
   // ─── Agent Defaults ────────────────────────────────────────────────
   agents: {
     defaults: {
-      // Model aliases for easy /model switching
-      models: {
-        "deepinfra/Qwen/Qwen3.5-35B-A3B": { alias: "qwen" },
-        "deepseek/deepseek-chat": { alias: "deepseek" },
-        "google/gemini-2.5-flash": { alias: "gemini" }
-      },
-
       // Primary model + automatic fallback chain
       model: {
-        primary: "deepinfra/Qwen/Qwen3.5-35B-A3B",
+        primary: "claude-cli/sonnet-4.5",
         fallbacks: [
+          "claude-cli/opus-4.6",
+          "deepinfra/Qwen/Qwen3.5-122B-A10B",
+          "deepinfra/Qwen/Qwen3.5-397B-A17B",
+          "deepinfra/Qwen/Qwen3.5-35B-A3B",
           "deepseek/deepseek-chat",
-          "google/gemini-2.5-flash"
+          "anthropic/claude-sonnet-4-5"
         ]
       },
 
-      // Qwen temperature — NEVER use 0, causes infinite loops
-      temperature: 0.7
-    }
+      workspace: "~/.openclaw/workspace",
+      contextTokens: 200000,
+      thinkingDefault: "off",
+
+      // Compaction — use Gemini (cheap, huge context)
+      compaction: {
+        model: "google/gemini-2.5-flash",
+        reserveTokensFloor: 50000,
+        memoryFlush: {
+          enabled: true,
+          softThresholdTokens: 80000
+        }
+      }
+    },
+
+    // ─── Per-Agent Overrides ──────────────────────────────────────────
+    list: [
+      {
+        id: "opus-dm",
+        name: "Opus DM",
+        workspace: "~/.openclaw/workspace-opus-dm",  // FULL tier
+        model: {
+          primary: "claude-cli/sonnet-4.5",
+          fallbacks: ["claude-cli/opus-4.6", "deepinfra/Qwen/Qwen3.5-122B-A10B"]
+        }
+      },
+      {
+        id: "pv-fund",
+        name: "PV Fund Analyst",
+        workspace: "~/.openclaw/workspace-pv-fund",  // FULL tier
+        model: {
+          primary: "claude-cli/sonnet-4.5",
+          fallbacks: ["claude-cli/opus-4.6", "deepinfra/Qwen/Qwen3.5-122B-A10B"]
+        }
+      },
+      {
+        id: "deepseek-test-tools",
+        name: "DeepSeek Test Tools",
+        workspace: "~/.openclaw/workspace-deepseek-test-tools",  // LITE tier
+        model: { primary: "deepseek/deepseek-chat", fallbacks: [] }
+      },
+      {
+        id: "deepseek-test-code",
+        name: "DeepSeek Test Code",
+        workspace: "~/.openclaw/workspace-deepseek-test-code",  // LITE tier
+        model: { primary: "deepseek/deepseek-chat", fallbacks: [] }
+      }
+      // Other agents inherit defaults (workspace → main, CLAUDE-CLI tier)
+    ]
   },
 
   // ─── ACP Plugin ────────────────────────────────────────────────────
@@ -81,7 +159,6 @@
         command: "claude",
         args: ["--dangerously-skip-permissions"],
         permissionMode: "approve-all",
-
         // CRITICAL: Empty string forces OAuth (Max subscription, $0)
         // If ANTHROPIC_API_KEY is set in parent env, Claude Code
         // will use API billing instead. This override prevents that.

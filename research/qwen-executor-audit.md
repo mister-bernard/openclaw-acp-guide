@@ -1,5 +1,14 @@
 # Qwen 3.5 35B Executor Readiness Audit
 
+> **Status (2026-04-05):** This audit has been largely implemented via workspace-v2 migration. The tiered bootstrap system now handles Qwen-specific scaffolding natively:
+> - `AGENTS-LITE.md` → `core/DELEGATION.md` (short form, used by LITE/QWEN tiers)
+> - `SOUL-LITE.md` → `core/RULES.md` (binary security rules) + `core/VOICE.md` (omitted for LITE tier)
+> - `QWEN-RULES.md` → `model-rules/QWEN-RULES.md` (executor guardrails)
+> - Token budget achieved: ~7K tokens for QWEN tier (vs ~13.5K old baseline, vs ~15K target in this audit)
+> - `build-workspace.sh QWEN <dir>` generates injector-compatible files for Qwen agents
+>
+> The analysis below remains useful as **design rationale** for the tiered system.
+
 **Context:** Replacing Opus/Sonnet (~$13.50/day) with Qwen 3.5 35B on DeepInfra (~$0.50/day) as daily-driver orchestrator. Qwen has 131K context, $0.07/$0.14 per M tokens input/output, but significantly weaker reasoning, tool-calling, and implicit rule inference.
 
 ---
