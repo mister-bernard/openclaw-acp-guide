@@ -112,18 +112,18 @@
     // ─── Per-Agent Overrides ──────────────────────────────────────────
     list: [
       {
-        id: "opus-dm",
-        name: "Opus DM",
-        workspace: "~/.openclaw/workspace-opus-dm",  // FULL tier
+        id: "messaging-agent",
+        name: "Messaging Agent",
+        workspace: "~/.openclaw/workspace-messaging-agent",  // FULL tier
         model: {
           primary: "claude-cli/sonnet-4.5",
           fallbacks: ["claude-cli/opus-4.6", "deepinfra/Qwen/Qwen3.5-122B-A10B"]
         }
       },
       {
-        id: "pv-fund",
-        name: "PV Fund Analyst",
-        workspace: "~/.openclaw/workspace-pv-fund",  // FULL tier
+        id: "research-agent",
+        name: "Research Agent",
+        workspace: "~/.openclaw/workspace-research-agent",  // FULL tier
         model: {
           primary: "claude-cli/sonnet-4.5",
           fallbacks: ["claude-cli/opus-4.6", "deepinfra/Qwen/Qwen3.5-122B-A10B"]

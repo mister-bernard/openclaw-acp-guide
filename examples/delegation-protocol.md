@@ -65,7 +65,7 @@ Keyword matching is dumb, fast, and reliable. Complexity estimation with a small
 
 | Tier | Delegation behavior |
 |------|---|
-| **FULL** (opus-dm, pv-fund) | Full long-form delegation with runtime selection, task spec, multi-hop reasoning |
+| **FULL** (heavy agents like a messaging-agent or research-agent) | Full long-form delegation with runtime selection, task spec, multi-hop reasoning |
 | **CLAUDE-CLI** (most agents) | Full delegation minus memory protocol (Claude handles memory natively) |
 | **LITE** (DeepSeek fallbacks) | Short form only — keyword match → delegate. No nuance. |
 | **QWEN** | Short form + QWEN-RULES.md guardrails (loop prevention, parameter validation) |
