@@ -50,7 +50,7 @@ Compaction model: google/gemini-2.5-flash
 
 | Tier | Bundle | Agents | Content | ~Tokens |
 |------|--------|--------|---------|---------|
-| FULL | All 8 core files | opus-dm, pv-fund | IDENTITY + VOICE + RULES + DELEGATION + MEMORY-PROTOCOL + USER + STATE + CAPABILITIES | ~8.7K |
+| FULL | All 8 core files | messaging-agent, research-agent | IDENTITY + VOICE + RULES + DELEGATION + MEMORY-PROTOCOL + USER + STATE + CAPABILITIES | ~8.7K |
 | CLAUDE-CLI | 7 core files (drops MEMORY-PROTOCOL) | Most agents (default) | Same minus MEMORY-PROTOCOL | ~8.1K |
 | LITE | 5 core files | DeepSeek fallback agents | IDENTITY + RULES + DELEGATION + USER + STATE | ~6.2K |
 | QWEN | 5 core + QWEN-RULES | Qwen agents | LITE + QWEN-RULES.md | ~7.0K |
@@ -133,8 +133,8 @@ workspace-main            → workspace/     (symlink, CLAUDE-CLI)
 workspace-community-groups → workspace/    (symlink, CLAUDE-CLI)
 workspace-priority-groups → workspace/     (symlink, CLAUDE-CLI)
 
-workspace-opus-dm          (real dir, FULL tier)
-workspace-pv-fund          (real dir, FULL tier)
+workspace-messaging-agent          (real dir, FULL tier)
+workspace-research-agent          (real dir, FULL tier)
 workspace-deepseek-test-*  (real dir, LITE tier)
 ```
 
@@ -391,7 +391,7 @@ sudo apt install gnome-keyring libsecret-tools
 # If setting up fresh, create core/ files and run:
 cd ~/.openclaw/workspace
 ./build-workspace.sh CLAUDE-CLI ~/.openclaw/workspace          # default (most agents)
-./build-workspace.sh FULL ~/.openclaw/workspace-opus-dm        # heavy agents
+./build-workspace.sh FULL ~/.openclaw/workspace-messaging-agent        # heavy agents
 ./build-workspace.sh LITE ~/.openclaw/workspace-deepseek-test  # cheap fallbacks
 ./build-workspace.sh QWEN ~/.openclaw/workspace-qwen           # qwen agents
 ```
